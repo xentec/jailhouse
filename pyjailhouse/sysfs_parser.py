@@ -99,6 +99,7 @@ def parse_iomem(pcidevices):
 
     rom_region = MemRegion(0xc0000, 0xdffff, 'ROMs')
     add_rom_region = False
+    sysram_prev = None
 
     ret = []
     dmar_regions = []
@@ -125,6 +126,25 @@ def parse_iomem(pcidevices):
         if r.typestr.find('dmar') >= 0:
             dmar_regions.append(r)
             append_r = False
+        # Concatinate contigous system RAM regions
+        if r.typestr == 'System RAM':
+            if sysram_prev == None:
+                sysram_prev = r
+                sysram_prev.comments.append('  ' + str(r))
+                append_r = False
+            else:
+                if sysram_prev.stop == r.start - 1:
+                    sysram_prev.comments.append('  ' + str(r))
+                    sysram_prev.stop = r.stop
+                    append_r = False
+                else:
+                    ret.append(sysram_prev)
+                    sysram_prev = None
+        else:
+            if sysram_prev != None:
+                ret.append(sysram_prev)
+                sysram_prev = None
+
         if append_r:
             ret.append(r)
 
