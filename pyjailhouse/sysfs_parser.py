@@ -159,6 +159,26 @@ def parse_iomem(pcidevices):
 
     return ret, dmar_regions
 
+def parse_ioports():
+    regions = IOMapTree.parse_ioports_tree(
+        IOMapTree.parse_iomap_file('/proc/ioports', PortRegion))
+
+    pm_timer_base = None
+    for r in regions:
+        if r.typestr == 'ACPI PM_TMR':
+            pm_timer_base = r.start
+            break
+
+    # static region
+    regions.append(PortRegion(0x0, 0x3f, ''))
+    # static region: VGA
+    regions.append(PortRegion(0x3b0, 0x3df, 'VGA', blocked=False))
+    # static region: PCI bus
+    regions.append(PortRegion(0x0d00, 0xffff, 'PCI bus', blocked=False))
+
+    regions.sort(key=lambda r: r.start)
+
+    return regions, pm_timer_base
 
 def parse_pcidevices():
     int_src_cnt = 0
@@ -778,6 +798,30 @@ class MemRegion:
             return s
         return 'JAILHOUSE_MEM_READ | JAILHOUSE_MEM_WRITE'
 
+class PortRegion:
+    def __init__(self, start, stop, typestr, comments=None, blocked=True):
+        self.start = start
+        self.stop = stop
+        self.typestr = typestr
+        self.comments = comments or []
+        self.blocked = blocked
+
+    def __str__(self):
+        return 'PortRegion: %04x-%04x : %s' % \
+            (self.start, self.stop, self.typestr)
+
+    def size(self):
+        # round up to full PAGE_SIZE
+        return int(self.stop - self.start)
+
+    def aligned_start(self):
+        return int(self.start - self.start % 8)
+    def aligned_stop(self):
+        return int(self.stop + (7 - self.stop % 8))
+
+    def bits(self):
+        return 0xFF if self.blocked \
+            else ~(((1 << (self.size() + 1)) - 1) << (self.start - self.aligned_start())) & 0xFF
 
 class IOAPIC:
     def __init__(self, id, address, gsi_base, iommu=0, bdf=0):
@@ -936,6 +980,33 @@ class IOMapTree:
 
         return regions
 
+    # recurse down the tree
+    @staticmethod
+    def parse_ioports_tree(tree):
+        regions = []
+
+        for tree in tree.children:
+            r = tree.region
+            s = r.typestr
+
+            if len(tree.children) > 0:
+                regions.extend(IOMapTree.parse_ioports_tree(tree))
+                continue
+
+            if r.start in [0x40, 0x60, 0x70] or s.startswith('ACPI'):
+                r.blocked = False
+
+            if r.start > 0x0d00:
+                break
+
+
+            if r.size() > 8:
+                continue
+
+            # add all remaining leaves
+            regions.append(r)
+
+        return regions
 
 class IOMMUConfig:
     def __init__(self, props):

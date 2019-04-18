@@ -162,18 +162,6 @@ def count_cpus():
             count += 1
     return count
 
-
-def parse_ioports():
-    pm_timer_base = None
-    f = sysfs_parser.input_open('/proc/ioports')
-    for line in f:
-        if line.endswith('ACPI PM_TMR\n'):
-            pm_timer_base = int(line.split('-')[0], 16)
-            break
-    f.close()
-    return pm_timer_base
-
-
 class MMConfig:
     def __init__(self, base, end_bus):
         self.base = base
@@ -302,16 +290,16 @@ regions.append(inmatereg)
 
 cpucount = count_cpus()
 
-pm_timer_base = parse_ioports()
+(ports, pm_timer_base) = sysfs_parser.parse_ioports()
 
 debug_console = DebugConsole(options.console)
-
 
 f = open(options.file, 'w')
 tmpl = Template(filename=os.path.join(options.template_dir,
                                       'root-cell-config.c.tmpl'))
 kwargs = {
     'regions': regions,
+    'ports': ports,
     'ourmem': ourmem,
     'argstr': ' '.join(sys.argv),
     'hvmem': hvmem,
